@@ -131,13 +131,10 @@ SERVICE_CLEANUP_ENTRIES_SCHEMA = vol.Schema({})
 SERVICE_PARSE_DATA_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_PACKET): cv.string,
-        vol.Optional(CONF_GATEWAY_ID): cv.string
-    }
-)SERVICE_READ_OTODATA_GATT_SCHEMA = vol.Schema(
-    {
-        vol.Required("mac_address"): cv.string,
+        vol.Optional(CONF_GATEWAY_ID): cv.string,
     }
 )
+
 
 async def async_setup(hass: HomeAssistant, config):
     """Set up integration."""
