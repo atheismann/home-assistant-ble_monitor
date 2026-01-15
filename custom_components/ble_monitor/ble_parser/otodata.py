@@ -31,15 +31,23 @@ except Exception as e:
 async def _read_gatt_info(mac_address: str):
     """Read device info from GATT characteristics."""
     try:
-        from bleak import BleakClient
+        from bleak_retry_connector import establish_connection
     except ImportError:
-        _LOGGER.warning("bleak not installed - cannot read GATT characteristics. Install with: pip install bleak")
+        _LOGGER.warning("bleak-retry-connector not installed - cannot read GATT characteristics")
         return None
     
     try:
         _LOGGER.info("Connecting to %s to read device info...", mac_address)
         
-        async with BleakClient(mac_address, timeout=10.0) as client:
+        # Use bleak-retry-connector for reliable connection
+        client = await establish_connection(
+            client_class=None,  # Use default BleakClient
+            device=mac_address,
+            name=mac_address,
+            max_attempts=3,
+        )
+        
+        try:
             _LOGGER.info("Connected to %s successfully!", mac_address)
             device_info = {"mac": mac_address.replace(":", "").upper()}
             
@@ -72,6 +80,9 @@ async def _read_gatt_info(mac_address: str):
                 return device_info
             else:
                 _LOGGER.warning("No GATT characteristics read from %s", mac_address)
+        finally:
+            await client.disconnect()
+            _LOGGER.info("Disconnected from %s", mac_address)
     except Exception as e:
         _LOGGER.error("GATT connection failed for %s: %s", mac_address, str(e), exc_info=True)
     
