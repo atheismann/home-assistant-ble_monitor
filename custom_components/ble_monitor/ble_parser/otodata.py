@@ -166,6 +166,7 @@ def parse_otodata(self, data: bytes, mac: bytes):
             
             empty_percent = data[13]
             tank_level = 100 - empty_percent
+            _LOGGER.info("OTOTELE: Extracted tank_level=%d%% (empty=%d%%), byte13=0x%02x", tank_level, empty_percent, data[13])
             
             # Extract additional telemetry data
             # Byte 11: Unknown flag (0x02)
@@ -177,14 +178,20 @@ def parse_otodata(self, data: bytes, mac: bytes):
             result.update({
                 "tank level": tank_level,
             })
+            _LOGGER.info("OTOTELE: result dict updated with tank_level")
             
             # Add cached device attributes if available
             mac_str = to_unformatted_mac(mac)
+            _LOGGER.info("OTOTELE: mac_str=%s, checking cache", mac_str)
             if mac_str in _device_cache:
+                _LOGGER.info("OTOTELE: Found device in cache: %s", _device_cache[mac_str])
                 result.update(_device_cache[mac_str])
+            else:
+                _LOGGER.info("OTOTELE: Device NOT in cache")
             
             # Add GATT-read attributes if available (serial number, etc.)
             if mac_str in _gatt_cache:
+                _LOGGER.info("OTOTELE: Found GATT info in cache")
                 gatt_info = _gatt_cache[mac_str]
                 if "serial_number" in gatt_info:
                     result["serial_number"] = gatt_info["serial_number"]
@@ -192,8 +199,10 @@ def parse_otodata(self, data: bytes, mac: bytes):
                     result["hardware_revision"] = gatt_info["hardware_revision"]
                 if "firmware_revision" in gatt_info:
                     result["firmware_revision"] = gatt_info["firmware_revision"]
+            else:
+                _LOGGER.info("OTOTELE: No GATT info in cache")
             
-            _LOGGER.debug("OTOTELE: tank_level=%d%% (empty=%d%%)", tank_level, empty_percent)
+            _LOGGER.info("OTOTELE: Final result dict before return: %s", result)
             
         elif packet_type == "OTOSTAT":
             # Status packet - contains unknown device status values
@@ -256,4 +265,5 @@ def parse_otodata(self, data: bytes, mac: bytes):
         "data": True
     })
     
+    _LOGGER.info("Returning result dict: %s", result)
     return result
