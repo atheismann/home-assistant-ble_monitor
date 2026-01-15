@@ -27,6 +27,24 @@ def parse_otodata(self, data: bytes, mac: bytes):
     firmware = "Otodata"
     result = {"firmware": firmware}
     
+    # DEBUG: Log full packet structure to identify correct byte positions
+    _LOGGER.info(
+        "Otodata RAW DATA (len=%d): %s",
+        msg_length,
+        data.hex()
+    )
+    if msg_length >= 11:
+        _LOGGER.info(
+            "Otodata byte breakdown - [0]=%02x [1]=%02x [2-3]=%02x%02x [4-10]=%s",
+            data[0], data[1], data[2], data[3],
+            data[4:11].hex() if msg_length >= 11 else "N/A"
+        )
+        try:
+            decoded_4_10 = data[4:11].decode('ascii', errors='ignore')
+            _LOGGER.info("Otodata bytes[4-10] decoded: '%s'", decoded_4_10)
+        except:
+            pass
+    
     # Minimum packet size validation
     if msg_length < 18:
         if self.report_unknown == "Otodata":
