@@ -961,6 +961,16 @@ SENSOR_TYPES: tuple[BLEMonitorSensorEntityDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
     ),
     BLEMonitorSensorEntityDescription(
+        key="tank level",
+        sensor_class="MeasuringSensor",
+        update_behavior="Averaging",
+        name="ble tank level",
+        unique_id="tank_",
+        native_unit_of_measurement=PERCENTAGE,
+        suggested_display_precision=0,
+        state_class=SensorStateClass.MEASUREMENT,
+    ),
+    BLEMonitorSensorEntityDescription(
         key="voltage",
         sensor_class="MeasuringSensor",
         update_behavior="Averaging",
