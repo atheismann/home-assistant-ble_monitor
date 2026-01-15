@@ -150,9 +150,11 @@ def parse_otodata(self, data: bytes, mac: bytes):
         # - OTOTELE: Telemetry data (primary sensor readings)
         
         _LOGGER.debug("Processing %s packet (length: %d)", packet_type, msg_length)
+        _LOGGER.info("About to check packet_type == 'OTOTELE': %s", packet_type == "OTOTELE")
         
         # Parse based on packet type
         if packet_type == "OTOTELE":
+            _LOGGER.info("ENTERED OTOTELE block!")
             # Telemetry packet - contains tank level
             # Packet type ends at byte 10, data starts at byte 11
             # Byte 13: Empty percentage (100 - value = tank level)
