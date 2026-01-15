@@ -113,6 +113,8 @@ def parse_otodata(self, data: bytes, mac: bytes):
     firmware = "Otodata"
     result = {"firmware": firmware}
     
+    _LOGGER.info("Otodata parse_otodata called - length=%d, data=%s", msg_length, data.hex())
+    
     # Minimum packet size validation
     if msg_length < 18:
         if self.report_unknown == "Otodata":
@@ -129,6 +131,7 @@ def parse_otodata(self, data: bytes, mac: bytes):
     # Bytes 11+: Sensor data
     try:
         packet_type = data[4:11].decode('ascii', errors='ignore').strip()
+        _LOGGER.info("Otodata packet_type decoded: '%s'", packet_type)
         if packet_type.startswith('OTO'):
             device_type = f"Propane Tank Monitor"
         else:
