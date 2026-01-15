@@ -35,7 +35,12 @@ def parse_otodata(self, data: bytes, mac: bytes):
             )
         return None
     
-    # Parse packet type from bytes 2-9
+    # Parse packet type from bytes 4-10 (after company ID at bytes 2-3)
+    # Packet structure:
+    # Byte 0-1: Length + AD Type (BLE header, stripped by parser)
+    # Byte 0-1: Company ID 0x03B1 (little-endian: \xb1\x03)
+    # Byte 2-8: 7-character packet type (OTOTELE, OTOSTAT, OTO3281, etc.)
+    # Byte 9+: Sensor data
     try:
         packet_type = data[2:9].decode('ascii', errors='ignore').strip()
         if packet_type.startswith('OTO'):
@@ -43,7 +48,7 @@ def parse_otodata(self, data: bytes, mac: bytes):
         else:
             device_type = "Propane Tank Monitor"
         
-        _LOGGER.info("Otodata packet type: %s, length: %d bytes", packet_type, msg_length)
+        _LOGGER.info("Otodata packet type: '%s', length: %d bytes", packet_type, msg_length)
     except Exception:
         device_type = "Propane Tank Monitor"
         packet_type = "UNKNOWN"
@@ -60,41 +65,47 @@ def parse_otodata(self, data: bytes, mac: bytes):
         # Parse based on packet type
         if packet_type == "OTOTELE":
             # Telemetry packet - contains tank level
-            # Byte 12: Empty percentage (100 - value = tank level)
-            # Example: byte 12 = 0x1c (28) → 100 - 28 = 72% full
+            # Data starts at byte 9 (after 7-char packet type)
+            # Byte 11: Empty percentage (100 - value = tank level)
+            # Example: byte 11 = 0x1c (28) → 100 - 28 = 72% full
             
-            if msg_length < 13:
+            if msg_length < 12:
                 _LOGGER.warning("OTOTELE packet too short: %d bytes", msg_length)
                 return None
             
-            empty_percent = data[12]
+            empty_percent = data[11]
             tank_level = 100 - empty_percent
             
             result.update({
                 "tank level": tank_level,
             })
             
-            _LOGGER.debug("OTOTELE: tank_level=%d%% (empty=%d%%)", tank_level, empty_percent)
+            _LOGGER.debug("OTOTELE: tank_level=%d%% (empty=%d%%, byte11=0x%02X)", tank_level, empty_percent, data[11])
             
         elif packet_type == "OTOSTAT":
-            # Status packet - may contain battery, signal strength, etc.
-            # Packet: \x1b\xff\xb1\x03OTOSTAT\x01\x86\x03\x86\x03\x8a\xbc\x04\x00\x08\xb3\x00\x01\x01\x00\x00\x00
+            # Status packet - contains unknown sensor data
+            # Data starts at byte 9
+            # Bytes 8-9 and 10-11 change between readings but don't appear to be temperature
+            # Earlier: 0x0386 (902) → Now: 0x0431 (1073) → Latest: 0x044C (1100)
+            # Could be: voltage (mV), signal strength, status codes, or other metrics
             
-            if msg_length < 15:
+            if msg_length < 13:
                 _LOGGER.warning("OTOSTAT packet too short: %d bytes", msg_length)
                 return None
             
-            # Analyzing OTOSTAT bytes (starting at position 9):
-            # Bytes 9-12 might contain status codes or counters
-            # Bytes might contain battery level, signal quality, etc.
+            # Parse 16-bit values for monitoring (data starts at byte 9)
+            val_9_10 = unpack("<H", data[9:11])[0]
+            val_11_12 = unpack("<H", data[11:13])[0]
             
-            # Log for analysis - user can monitor and tell us what changes
-            _LOGGER.info("OTOSTAT packet: %s", data.hex())
-            for i in range(9, min(msg_length, 20)):
-                _LOGGER.info("  Byte %d: 0x%02X = %d", i, data[i], data[i])
+            _LOGGER.info(
+                "OTOSTAT values - bytes[9-10]=%d, bytes[11-12]=%d, full_hex=%s",
+                val_9_10, val_11_12, data.hex()
+            )
             
-            # Placeholder - need to identify which bytes contain useful data
-            # Once we know what changes with battery level, temperature, etc., we can parse it
+            # Skip OTOSTAT until we identify what the values represent
+            # User should monitor logs and tell us what correlates with actual readings
+            _LOGGER.debug("Skipping OTOSTAT packet - unknown data format")
+            return None
             
         elif packet_type.startswith("OTO3") or packet_type.startswith("OTO32"):
             # Device info packet - contains device ID, maybe firmware version
