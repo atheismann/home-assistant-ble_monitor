@@ -1,9 +1,5 @@
 """Parser for Otodata propane tank monitor BLE advertisements"""
 import logging
-import struct
-import json
-import asyncio
-from pathlib import Path
 from struct import unpack
 
 from .helpers import to_mac, to_unformatted_mac
@@ -12,123 +8,6 @@ _LOGGER = logging.getLogger(__name__)
 
 # Cache device attributes from OTO3281 packets to use in OTOTELE packets
 _device_cache = {}
-
-# Track which devices we've already tried to read GATT info from
-_gatt_read_attempted = set()
-
-# Load GATT-read device info from cache file (serial numbers, etc.)
-_gatt_cache_file = Path(__file__).parent / "otodata_device_cache.json"
-_gatt_cache = {}
-try:
-    if _gatt_cache_file.exists():
-        with open(_gatt_cache_file, 'r') as f:
-            _gatt_cache = json.load(f)
-        _LOGGER.info("Loaded Otodata GATT cache with %d devices", len(_gatt_cache))
-except Exception as e:
-    _LOGGER.debug("Could not load Otodata GATT cache: %s", e)
-
-
-async def _read_gatt_info(mac_address: str):
-    """Read device info from GATT characteristics."""
-    try:
-        from homeassistant.components import bluetooth
-        from bleak_retry_connector import establish_connection, BleakClientWithServiceCache
-    except ImportError:
-        _LOGGER.warning("Required modules not available for GATT connection")
-        return None
-    
-    try:
-        _LOGGER.info("Connecting to %s to read device info...", mac_address)
-        
-        # Get BLEDevice from Home Assistant's bluetooth integration
-        from homeassistant.core import HomeAssistant
-        try:
-            # Try to get hass instance - this is a bit hacky but necessary
-            # since we're in a parser context without direct access to hass
-            import homeassistant.core as ha_core
-            hass = ha_core._INSTANCES[0] if ha_core._INSTANCES else None
-            if not hass:
-                _LOGGER.warning("Cannot access Home Assistant instance for GATT connection")
-                return None
-            
-            ble_device = bluetooth.async_ble_device_from_address(hass, mac_address, connectable=True)
-            if not ble_device:
-                _LOGGER.warning("BLE device %s not found in bluetooth scanner", mac_address)
-                return None
-        except Exception as e:
-            _LOGGER.warning("Cannot get BLE device for %s: %s", mac_address, e)
-            return None
-        
-        # Use bleak-retry-connector for reliable connection
-        client = await establish_connection(
-            BleakClientWithServiceCache,
-            ble_device,
-            mac_address,
-            max_attempts=3,
-        )
-        
-        try:
-            _LOGGER.info("Connected to %s successfully!", mac_address)
-            device_info = {"mac": mac_address.replace(":", "").upper()}
-            
-            # Device Information Service characteristics
-            chars = {
-                "serial_number": "00002a25-0000-1000-8000-00805f9b34fb",
-                "hardware_revision": "00002a27-0000-1000-8000-00805f9b34fb",
-                "firmware_revision": "00002a26-0000-1000-8000-00805f9b34fb",
-            }
-            
-            for name, uuid in chars.items():
-                try:
-                    value = await client.read_gatt_char(uuid)
-                    decoded = value.decode('utf-8').strip()
-                    device_info[name] = decoded
-                    _LOGGER.info("Read %s from %s: %s", name, mac_address, decoded)
-                except Exception as e:
-                    _LOGGER.warning("Could not read %s from %s: %s", name, mac_address, e)
-            
-            if len(device_info) > 1:  # More than just MAC
-                # Save to cache
-                global _gatt_cache
-                _gatt_cache[device_info["mac"]] = device_info
-                
-                _LOGGER.info("Saving GATT cache to: %s", _gatt_cache_file)
-                with open(_gatt_cache_file, 'w') as f:
-                    json.dump(_gatt_cache, f, indent=2)
-                
-                _LOGGER.info("Cached GATT info for %s: %s", mac_address, device_info)
-                return device_info
-            else:
-                _LOGGER.warning("No GATT characteristics read from %s", mac_address)
-        finally:
-            await client.disconnect()
-            _LOGGER.info("Disconnected from %s", mac_address)
-    except Exception as e:
-        _LOGGER.error("GATT connection failed for %s: %s", mac_address, str(e), exc_info=True)
-    
-    return None
-
-
-def _trigger_gatt_read(mac_address: str):
-    """Trigger background GATT read if not already done."""
-    mac_str = mac_address.replace(":", "").upper()
-    
-    # Skip if already attempted or already in cache
-    if mac_str in _gatt_read_attempted or mac_str in _gatt_cache:
-        return
-    
-    _gatt_read_attempted.add(mac_str)
-    
-    # Try to get the event loop and schedule the read
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            asyncio.create_task(_read_gatt_info(mac_address))
-        else:
-            # If no loop, schedule for later
-            asyncio.run(_read_gatt_info(mac_address))
-    except Exception as e:
-        _LOGGER.debug("Could not schedule GATT read for %s: %s", mac_address, e)
 
 
 def parse_otodata(self, data: bytes, mac: bytes):
@@ -150,7 +29,7 @@ def parse_otodata(self, data: bytes, mac: bytes):
     firmware = "Otodata"
     result = {"firmware": firmware}
     
-    _LOGGER.info("Otodata parse_otodata called - length=%d, data=%s", msg_length, data.hex())
+    _LOGGER.debug("Otodata parse_otodata called - length=%d", msg_length)
     
     # Minimum packet size validation
     if msg_length < 18:
@@ -168,7 +47,7 @@ def parse_otodata(self, data: bytes, mac: bytes):
     # Bytes 11+: Sensor data
     try:
         packet_type = data[4:11].decode('ascii', errors='ignore').strip()
-        _LOGGER.info("Otodata packet_type decoded: '%s'", packet_type)
+        _LOGGER.debug("Otodata packet_type: %s", packet_type)
         if packet_type.startswith('OTO'):
             device_type = f"Propane Tank Monitor"
         else:
@@ -187,11 +66,9 @@ def parse_otodata(self, data: bytes, mac: bytes):
         # - OTOTELE: Telemetry data (primary sensor readings)
         
         _LOGGER.debug("Processing %s packet (length: %d)", packet_type, msg_length)
-        _LOGGER.info("About to check packet_type == 'OTOTELE': %s", packet_type == "OTOTELE")
         
         # Parse based on packet type
         if packet_type == "OTOTELE":
-            _LOGGER.info("ENTERED OTOTELE block!")
             # Telemetry packet - contains tank level
             # Packet type ends at byte 10, data starts at byte 11
             # Byte 14: Empty percentage (100 - value = tank level)
@@ -205,8 +82,7 @@ def parse_otodata(self, data: bytes, mac: bytes):
             tank_level = 100 - empty_percent
             battery_depleted = data[13]
             battery_level = 100 - battery_depleted  # Inverted like tank level
-            _LOGGER.info("OTOTELE: Extracted tank_level=%d%% (empty=%d%%), battery=%d%% (depleted=%d%%), byte13=0x%02x, byte14=0x%02x", 
-                        tank_level, empty_percent, battery_level, battery_depleted, data[13], data[14])
+            _LOGGER.debug("OTOTELE: tank_level=%d%%, battery=%d%%", tank_level, battery_level)
             
             # Extract additional telemetry data
             # Byte 11: Unknown flag (0x02)
@@ -220,31 +96,11 @@ def parse_otodata(self, data: bytes, mac: bytes):
                 "tank level": tank_level,
                 "battery": battery_level,
             })
-            _LOGGER.info("OTOTELE: result dict updated with tank_level")
             
             # Add cached device attributes if available
             mac_str = to_unformatted_mac(mac)
-            _LOGGER.info("OTOTELE: mac_str=%s, checking cache", mac_str)
             if mac_str in _device_cache:
-                _LOGGER.info("OTOTELE: Found device in cache: %s", _device_cache[mac_str])
                 result.update(_device_cache[mac_str])
-            else:
-                _LOGGER.info("OTOTELE: Device NOT in cache")
-            
-            # Add GATT-read attributes if available (serial number, etc.)
-            if mac_str in _gatt_cache:
-                _LOGGER.info("OTOTELE: Found GATT info in cache")
-                gatt_info = _gatt_cache[mac_str]
-                if "serial_number" in gatt_info:
-                    result["serial_number"] = gatt_info["serial_number"]
-                if "hardware_revision" in gatt_info:
-                    result["hardware_revision"] = gatt_info["hardware_revision"]
-                if "firmware_revision" in gatt_info:
-                    result["firmware_revision"] = gatt_info["firmware_revision"]
-            else:
-                _LOGGER.info("OTOTELE: No GATT info in cache")
-            
-            _LOGGER.info("OTOTELE: Final result dict before return: %s", result)
             
         elif packet_type == "OTOSTAT":
             # Status packet - contains unknown device status values
@@ -282,12 +138,8 @@ def parse_otodata(self, data: bytes, mac: bytes):
                 "model": product_name,
             }
             
-            # Trigger automatic GATT read on first discovery
-            mac_formatted = to_mac(mac)
-            _trigger_gatt_read(mac_formatted)
-            
             _LOGGER.info("Otodata device detected - Model: %s, MAC: %s", 
-                        product_name, mac_formatted)
+                        product_name, to_mac(mac))
             
             # Don't create sensor entities for device info packets
             return None
@@ -307,5 +159,4 @@ def parse_otodata(self, data: bytes, mac: bytes):
         "data": True
     })
     
-    _LOGGER.info("Returning result dict: %s", result)
     return result
