@@ -2548,6 +2548,7 @@ AUTO_SENSOR_LIST = [
     "speed",
     "steps",
     "rssi",
+    "tank level",
     "temperature",
     "temperature probe 1",
     "temperature probe 2",
