@@ -80,22 +80,32 @@ def parse_otodata(self, data: bytes, mac: bytes):
             
             empty_percent = data[14]
             tank_level = 100 - empty_percent
+            
+            # Byte 13: Battery depleted percentage (100 - value = battery level)
+            # Special value 0xFF (255) means battery data unavailable
             battery_depleted = data[13]
-            battery_level = 100 - battery_depleted  # Inverted like tank level
-            _LOGGER.debug("OTOTELE: tank_level=%d%%, battery=%d%%", tank_level, battery_level)
+            if battery_depleted != 0xFF:
+                battery_level = 100 - battery_depleted
+                _LOGGER.debug("OTOTELE: tank_level=%d%%, battery=%d%%", tank_level, battery_level)
+            else:
+                battery_level = None
+                _LOGGER.debug("OTOTELE: tank_level=%d%%, battery=unavailable (0xFF)", tank_level)
             
             # Extract additional telemetry data
             # Byte 11: Unknown flag (0x02)
             # Byte 12: Unknown value (0x00)
-            # Byte 13: Battery depleted percentage (100 - value = battery level)
+            # Byte 13: Battery depleted percentage (100 - value = battery level), or 0xFF if unavailable
             # Byte 14: Tank empty percentage (100 - value = tank level)
             # Bytes 15-16: Unknown 16-bit value
             # Bytes 17-20: Could be serial or device ID
             
             result.update({
                 "tank level": tank_level,
-                "battery": battery_level,
             })
+            
+            # Only add battery if value is valid (not 0xFF)
+            if battery_level is not None:
+                result["battery"] = battery_level
             
             # Add cached device attributes if available
             mac_str = to_unformatted_mac(mac)
