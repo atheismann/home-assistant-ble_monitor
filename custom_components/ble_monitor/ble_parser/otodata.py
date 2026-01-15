@@ -40,6 +40,7 @@ async def _read_gatt_info(mac_address: str):
         _LOGGER.info("Connecting to %s to read device info...", mac_address)
         
         async with BleakClient(mac_address, timeout=10.0) as client:
+            _LOGGER.info("Connected to %s successfully!", mac_address)
             device_info = {"mac": mac_address.replace(":", "").upper()}
             
             # Device Information Service characteristics
@@ -52,22 +53,27 @@ async def _read_gatt_info(mac_address: str):
             for name, uuid in chars.items():
                 try:
                     value = await client.read_gatt_char(uuid)
-                    device_info[name] = value.decode('utf-8').strip()
-                except Exception:
-                    pass  # Skip if characteristic not available
+                    decoded = value.decode('utf-8').strip()
+                    device_info[name] = decoded
+                    _LOGGER.info("Read %s from %s: %s", name, mac_address, decoded)
+                except Exception as e:
+                    _LOGGER.warning("Could not read %s from %s: %s", name, mac_address, e)
             
             if len(device_info) > 1:  # More than just MAC
                 # Save to cache
                 global _gatt_cache
                 _gatt_cache[device_info["mac"]] = device_info
                 
+                _LOGGER.info("Saving GATT cache to: %s", _gatt_cache_file)
                 with open(_gatt_cache_file, 'w') as f:
                     json.dump(_gatt_cache, f, indent=2)
                 
                 _LOGGER.info("Cached GATT info for %s: %s", mac_address, device_info)
                 return device_info
+            else:
+                _LOGGER.warning("No GATT characteristics read from %s", mac_address)
     except Exception as e:
-        _LOGGER.debug("Could not read GATT info from %s: %s", mac_address, e)
+        _LOGGER.error("GATT connection failed for %s: %s", mac_address, str(e), exc_info=True)
     
     return None
 
