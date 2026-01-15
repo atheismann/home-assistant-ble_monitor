@@ -99,6 +99,7 @@ def parse_otodata(self, data: bytes, mac: bytes):
             })
             
             _LOGGER.info("OTOTELE: tank_level=%d%% (empty=%d%%)", tank_level, empty_percent)
+            _LOGGER.info("OTOTELE result dict: %s", result)
             
         elif packet_type == "OTOSTAT":
             # Status packet - contains unknown sensor data
@@ -157,5 +158,7 @@ def parse_otodata(self, data: bytes, mac: bytes):
         "packet": "no packet id",
         "data": True
     })
+    
+    _LOGGER.info("Otodata FINAL RESULT returning to BLE Monitor: %s", result)
     
     return result
