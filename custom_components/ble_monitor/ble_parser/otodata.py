@@ -31,19 +31,39 @@ except Exception as e:
 async def _read_gatt_info(mac_address: str):
     """Read device info from GATT characteristics."""
     try:
-        from bleak_retry_connector import establish_connection
+        from homeassistant.components import bluetooth
+        from bleak_retry_connector import establish_connection, BleakClientWithServiceCache
     except ImportError:
-        _LOGGER.warning("bleak-retry-connector not installed - cannot read GATT characteristics")
+        _LOGGER.warning("Required modules not available for GATT connection")
         return None
     
     try:
         _LOGGER.info("Connecting to %s to read device info...", mac_address)
         
+        # Get BLEDevice from Home Assistant's bluetooth integration
+        from homeassistant.core import HomeAssistant
+        try:
+            # Try to get hass instance - this is a bit hacky but necessary
+            # since we're in a parser context without direct access to hass
+            import homeassistant.core as ha_core
+            hass = ha_core._INSTANCES[0] if ha_core._INSTANCES else None
+            if not hass:
+                _LOGGER.warning("Cannot access Home Assistant instance for GATT connection")
+                return None
+            
+            ble_device = bluetooth.async_ble_device_from_address(hass, mac_address, connectable=True)
+            if not ble_device:
+                _LOGGER.warning("BLE device %s not found in bluetooth scanner", mac_address)
+                return None
+        except Exception as e:
+            _LOGGER.warning("Cannot get BLE device for %s: %s", mac_address, e)
+            return None
+        
         # Use bleak-retry-connector for reliable connection
         client = await establish_connection(
-            client_class=None,  # Use default BleakClient
-            device=mac_address,
-            name=mac_address,
+            BleakClientWithServiceCache,
+            ble_device,
+            mac_address,
             max_attempts=3,
         )
         
