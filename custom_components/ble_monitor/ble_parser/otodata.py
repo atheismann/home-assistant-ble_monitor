@@ -157,26 +157,31 @@ def parse_otodata(self, data: bytes, mac: bytes):
             _LOGGER.info("ENTERED OTOTELE block!")
             # Telemetry packet - contains tank level
             # Packet type ends at byte 10, data starts at byte 11
-            # Byte 13: Empty percentage (100 - value = tank level)
-            # Example from logs: byte 13 = 0x1d (29) → 100 - 29 = 71% full
+            # Byte 14: Empty percentage (100 - value = tank level)
+            # Example from logs: byte 14 = 0x1c (28) → 100 - 28 = 72% full
             
-            if msg_length < 14:
+            if msg_length < 15:
                 _LOGGER.warning("OTOTELE packet too short: %d bytes", msg_length)
                 return None
             
-            empty_percent = data[13]
+            empty_percent = data[14]
             tank_level = 100 - empty_percent
-            _LOGGER.info("OTOTELE: Extracted tank_level=%d%% (empty=%d%%), byte13=0x%02x", tank_level, empty_percent, data[13])
+            battery_depleted = data[13]
+            battery_level = 100 - battery_depleted  # Inverted like tank level
+            _LOGGER.info("OTOTELE: Extracted tank_level=%d%% (empty=%d%%), battery=%d%% (depleted=%d%%), byte13=0x%02x, byte14=0x%02x", 
+                        tank_level, empty_percent, battery_level, battery_depleted, data[13], data[14])
             
             # Extract additional telemetry data
             # Byte 11: Unknown flag (0x02)
             # Byte 12: Unknown value (0x00)
-            # Byte 14: Duplicate of byte 13
+            # Byte 13: Battery depleted percentage (100 - value = battery level)
+            # Byte 14: Tank empty percentage (100 - value = tank level)
             # Bytes 15-16: Unknown 16-bit value
             # Bytes 17-20: Could be serial or device ID
             
             result.update({
                 "tank level": tank_level,
+                "battery": battery_level,
             })
             _LOGGER.info("OTOTELE: result dict updated with tank_level")
             
